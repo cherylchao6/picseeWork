@@ -10,7 +10,7 @@ app.listen(port, ()=>{
 
 const redis = require("redis");
 const client = redis.createClient('6379');
-function getCache (key) { // used in async function
+function getCache (key) { 
   return new Promise((resolve, reject) => {
       client.get(key, (err, data) => {
           if (err) reject(err);
@@ -23,7 +23,7 @@ function getCache (key) { // used in async function
 app.get("/", async (req,res) => {
   let {user} = req.query;
   if (!user) {
-    console.log('no user')
+    console.log('26')
     let data = {
       count: 1,
       time: new Date().getTime()
@@ -41,30 +41,31 @@ app.get("/", async (req,res) => {
         time: new Date().getTime()
       };
       client.setex(user, 600, JSON.stringify(data));
-      client.set(user,JSON.stringify(value));
       let message = {
         message: `目前造訪1次`
       }
-      res.sendStatus(200).send(message)
+      res.status(200).send(message)
       return
     }
-    let count = JSON.parse(value)['count'];
-    if (count > 5) {
+    let parsedValue = JSON.parse(value);
+    if (parsedValue.count >= 5) {
       let time = JSON.parse(value)['time']
       let expiredTime = time + 600000;
-      let remainTime = (new Date().getTime() - expiredTime)/1000;
+      var clock = new Date(expiredTime);
       let message = {
-          message: `請於${remainTime}再後造訪`
+          message: `請於${clock}再造訪`
       }
-      res.sendStatus(429).send(message)
+      res.status(429).send(message)
     } else {
-      count += 1;
-      JSON.parse(value)['count'] = count;
-      client.set(user,JSON.stringify(value));
+      parsedValue.count += 1;
+      client.set(user,JSON.stringify(parsedValue));
       let message = {
-        message: `目前造訪${count}次`
+        message: `目前造訪${parsedValue.count}次`
       }
-      res.sendStatus(200).send(message)
+      res.status(200).send(message)
     }
+  } else {
+    console.log('72')
+    return res.sendStatus(200)
   }
 })
