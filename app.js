@@ -7,32 +7,7 @@ app.use(express.urlencoded({ extended: false }));
 app.listen(port, ()=>{
   console.log(`The port is listening on ${port}`)
 })
-require("dotenv").config();
 
-
-const env = process.env.NODE_ENV || "test";
-const { DB_HOST, DB_USER, DB_PWD, DB_DB, DB_DB_TEST } = process.env;
-const mysql = require("mysql2/promise");
-const mysqlConfig = {
-  production: {
-    host: DB_HOST,
-    user: DB_USER,
-    password: DB_PWD,
-    database: DB_DB
-  },
-  test: {
-    host: DB_HOST,
-    user: DB_USER,
-    password: DB_PWD,
-    database: DB_DB_TEST
-  }
-};
-
-const mysqlEnv = mysqlConfig[env];
-mysqlEnv.waitForConnections = true;
-mysqlEnv.connectionLimit = 20;
-
-const pool = mysql.createPool(mysqlEnv);
 
 const redis = require("redis");
 const client = redis.createClient('6379');
@@ -46,11 +21,13 @@ function getCache (key) {
 }
 
 
-app.get("/", verifyUser, async (req,res) => {
+app.get("/", async (req,res) => {
   let {user} = req.query;
+  //沒有user的情況下以IP登入
   if (!user) {
     let clientip = req.connection.remoteAddress;
     let value = await getCache(clientip);
+    //10分鐘內第一次登入
     if (value === null) {
       let data = {
         count: 1,
@@ -63,7 +40,9 @@ app.get("/", verifyUser, async (req,res) => {
       res.status(200).send(message)
       return
     }
+    //10分鐘內非第一次登入
     let parsedValue = JSON.parse(value);
+    //如果api次數比五大，跟使用者說還要多久才能進來
     if (parsedValue.count >= 5) {
       let time = JSON.parse(value)['time']
       let expiredTime = time + 600000;
@@ -72,13 +51,16 @@ app.get("/", verifyUser, async (req,res) => {
           message: `請於${clock}再造訪`
       }
       res.status(429).send(message);
+      return;
     } else {
+      //如果api次數比五小，要更新打api次數
       parsedValue.count += 1;
-      client.set(user,JSON.stringify(parsedValue));
+      client.set(clientip,JSON.stringify(parsedValue));
       let message = {
         message: `目前造訪${parsedValue.count}次`
-      }
+      };
       res.status(200).send(message);
+      return;
     }
   } 
   if (user !== 'admin') {
@@ -97,7 +79,7 @@ app.get("/", verifyUser, async (req,res) => {
       return
     }
     let parsedValue = JSON.parse(value);
-    if (parsedValue.count >= limitation) {
+    if (parsedValue.count >= 5) {
       let time = JSON.parse(value)['time']
       let expiredTime = time + 600000;
       var clock = new Date(expiredTime);
@@ -114,17 +96,8 @@ app.get("/", verifyUser, async (req,res) => {
       res.status(200).send(message)
     }
   } else {
+    //admin 就都沒有限制
     return res.sendStatus(200)
   }
 })
 
-//middleware
-async function verifyUser (req, res, next) {
-  const {user} = req.query;
-  if (user) {
-    let selectResult = await pool.query('SELECT limitation FROM user_limitation WHERE user = ?', user);
-    console.log(selectResult[0]);
-    req.limitation = selectResult[0][0]['limitation']
-  }
-  next();
-}
